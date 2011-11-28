@@ -95,6 +95,17 @@ public abstract class ConfigurableMultiserviceActivator
     }
 
     /**
+     * Returns <code>true</code> if the tracker should be reloaded when services
+     * are changed.
+     * 
+     * @return <code>true</code> if the tracker should be reloaded when services
+     *         are changed
+     */
+    protected boolean reloadOnUpdate() {
+        return false;
+    }
+
+    /**
      * @see org.osgi.framework.BundleActivator#start(org.osgi.framework.BundleContext)
      */
     public synchronized void start(BundleContext context) throws Exception {
@@ -108,12 +119,12 @@ public abstract class ConfigurableMultiserviceActivator
                 throws ConfigurationException {
                 try {
                     synchronized (ConfigurableMultiserviceActivator.this) {
-                        if (!checkPropertiesModifications(properties)) {
-                            return;
-                        }
+                        boolean modified = checkPropertiesModifications(properties);
                         fProperties = properties;
-                        closeTracker();
-                        openTracker();
+                        if (modified && (fTracker == null || reloadOnUpdate())) {
+                            closeTracker();
+                            openTracker();
+                        }
                     }
                 } catch (Exception e) {
                     handleError("Can not update the configuration", e);

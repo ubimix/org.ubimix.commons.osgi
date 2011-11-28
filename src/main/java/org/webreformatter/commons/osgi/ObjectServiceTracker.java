@@ -16,6 +16,7 @@
  * ************************************************************************** */
 package org.webreformatter.commons.osgi;
 
+import java.lang.annotation.Annotation;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -32,12 +33,6 @@ import org.osgi.framework.ServiceReference;
 import org.osgi.framework.ServiceRegistration;
 import org.osgi.util.tracker.ServiceTracker;
 import org.osgi.util.tracker.ServiceTrackerCustomizer;
-
-import org.webreformatter.commons.osgi.OSGIObjectActivator;
-import org.webreformatter.commons.osgi.OSGIObjectDeactivator;
-import org.webreformatter.commons.osgi.OSGIService;
-import org.webreformatter.commons.osgi.OSGIServiceActivator;
-import org.webreformatter.commons.osgi.OSGIServiceDeactivator;
 
 /**
  * This is a multi-service tracker for individual objects. It is used to
@@ -64,8 +59,7 @@ public class ObjectServiceTracker {
 
         private ServiceTracker fTracker;
 
-        public TrackHelper(final Method setMethod, int minCardinality) {
-            final Class<?> type = setMethod.getParameterTypes()[0];
+        public TrackHelper(final Class<?> type) {
             fTracker = new ServiceTracker(
                 fContext,
                 type.getName(),
@@ -74,19 +68,38 @@ public class ObjectServiceTracker {
                         Object service = fContext.getService(reference);
                         if (service != null) {
                             try {
-                                if (setMethod.getParameterTypes().length == 2) {
-                                    Map<String, Object> params = getParameters(reference);
-                                    call(setMethod, service, params);
-                                } else {
-                                    call(setMethod, service);
+                                if (callServiceMethod(
+                                    fServiceLoaders,
+                                    reference,
+                                    service)) {
+                                    inc();
                                 }
-                                inc();
                             } catch (Throwable e) {
                                 handle(e, "ERROR! Can not register service "
                                     + type);
                             }
                         }
                         return service;
+                    }
+
+                    protected boolean callServiceMethod(
+                        Map<Class<?>, List<Method>> map,
+                        ServiceReference reference,
+                        Object service) throws Exception {
+                        boolean result = false;
+                        List<Method> methods = map.get(type);
+                        if (methods != null) {
+                            for (Method method : methods) {
+                                if (method.getParameterTypes().length == 2) {
+                                    Map<String, Object> params = getParameters(reference);
+                                    call(method, service, params);
+                                } else {
+                                    call(method, service);
+                                }
+                                result = true;
+                            }
+                        }
+                        return result;
                     }
 
                     private Map<String, Object> getParameters(
@@ -116,13 +129,13 @@ public class ObjectServiceTracker {
                     public void modifiedService(
                         ServiceReference reference,
                         Object service) {
-                        try {
-                            dec();
-                            inc();
-                        } catch (Throwable e) {
-                            handle(e, "ERROR! Can not modify the service "
-                                + type);
-                        }
+                        // try {
+                        // dec();
+                        // inc();
+                        // } catch (Throwable e) {
+                        // handle(e, "ERROR! Can not modify the service "
+                        // + type);
+                        // }
                     }
 
                     public void removedService(
@@ -130,15 +143,10 @@ public class ObjectServiceTracker {
                         Object service) {
                         try {
                             dec();
-                            Method removeMethod = fServiceUnloaders.get(type);
-                            if (removeMethod != null) {
-                                if (removeMethod.getParameterTypes().length == 2) {
-                                    Map<String, Object> params = getParameters(reference);
-                                    call(removeMethod, service, params);
-                                } else {
-                                    call(removeMethod, service);
-                                }
-                            }
+                            callServiceMethod(
+                                fServiceUnloaders,
+                                reference,
+                                service);
                         } catch (Throwable e) {
                             handle(e, "ERROR! Can not deactivate the service "
                                 + type);
@@ -146,6 +154,20 @@ public class ObjectServiceTracker {
                     }
 
                 });
+
+            List<Method> methods = fServiceLoaders.get(type);
+            int minCardinality = -1;
+            for (Method method : methods) {
+                OSGIServiceActivator annotation = method
+                    .getAnnotation(OSGIServiceActivator.class);
+                int min = annotation != null ? annotation.min() : 0;
+                if (minCardinality < 0 || minCardinality > min) {
+                    minCardinality = min;
+                }
+            }
+            if (minCardinality < 0) {
+                minCardinality = 0;
+            }
             fMinCardinality = minCardinality;
         }
 
@@ -173,8 +195,9 @@ public class ObjectServiceTracker {
                 dec = (fCounter == fMinCardinality);
                 fCounter--;
             }
-            if (dec)
+            if (dec) {
                 decReference();
+            }
         }
 
         /**
@@ -191,8 +214,9 @@ public class ObjectServiceTracker {
                 fCounter++;
                 inc = (fCounter == fMinCardinality);
             }
-            if (inc)
+            if (inc) {
                 incReference();
+            }
         }
 
         /**
@@ -250,6 +274,12 @@ public class ObjectServiceTracker {
     private List<Method> fObjectServiceGetters = new ArrayList<Method>();
 
     /**
+     * This map contains methods used to set services of a specific type in the
+     * configured object.
+     */
+    protected Map<Class<?>, List<Method>> fServiceLoaders = new HashMap<Class<?>, List<Method>>();
+
+    /**
      * The service registration returned by the OSGi framework when the managed
      * object is registered as a service. This field is not empty if the
      * {@link #fServiceType} is not <code>null</code> and the object is really
@@ -266,7 +296,7 @@ public class ObjectServiceTracker {
      * This map contains remove methods which are used to notify that a service
      * was unregistered.
      */
-    protected Map<Class<?>, Method> fServiceUnloaders = new HashMap<Class<?>, Method>();
+    protected Map<Class<?>, List<Method>> fServiceUnloaders = new HashMap<Class<?>, List<Method>>();
 
     /**
      * List of trackers associated with service setters in the managed object.
@@ -301,7 +331,12 @@ public class ObjectServiceTracker {
                 || addObjectDeactivator(method)
                 || addObjectService(method);
         }
-        if (!ok) {
+        if (ok) {
+            for (Class<?> type : fServiceLoaders.keySet()) {
+                TrackHelper helper = new TrackHelper(type);
+                fTrackers.add(helper);
+            }
+        } else {
             log.warning("Class does not contain any services or activators: "
                 + cls.getName());
         }
@@ -315,8 +350,9 @@ public class ObjectServiceTracker {
      * @return <code>true</code> if the given method is an object activator
      */
     private boolean addObjectActivator(Method method) {
-        if (method.getAnnotation(OSGIObjectActivator.class) == null)
+        if (method.getAnnotation(OSGIObjectActivator.class) == null) {
             return false;
+        }
         Class<?>[] params = method.getParameterTypes();
         if (params.length > 0) {
             throw new IllegalArgumentException("The object activator method "
@@ -335,8 +371,9 @@ public class ObjectServiceTracker {
      * @return <code>true</code> if the given method is an object deactivator
      */
     private boolean addObjectDeactivator(Method method) {
-        if (method.getAnnotation(OSGIObjectDeactivator.class) == null)
+        if (method.getAnnotation(OSGIObjectDeactivator.class) == null) {
             return false;
+        }
         Class<?>[] params = method.getParameterTypes();
         if (params.length > 0) {
             throw new IllegalArgumentException("The object deactivator method "
@@ -357,8 +394,9 @@ public class ObjectServiceTracker {
      *         service exposed by the managed object
      */
     private boolean addObjectService(Method method) {
-        if (method.getAnnotation(OSGIService.class) == null)
+        if (method.getAnnotation(OSGIService.class) == null) {
             return false;
+        }
         Class<?>[] params = method.getParameterTypes();
         if (params.length > 1) {
             throw new IllegalArgumentException("The service method "
@@ -385,22 +423,45 @@ public class ObjectServiceTracker {
      * @return <code>true</code> if the given method is a service activator
      */
     private boolean addServiceLoader(Method method) {
-        OSGIServiceActivator service = method
-            .getAnnotation(OSGIServiceActivator.class);
-        if (service == null)
-            return false;
-        TrackHelper helper;
+        Class<?> type = addServiceMethod(
+            method,
+            fServiceLoaders,
+            OSGIServiceActivator.class);
+        return type != null;
+    }
+
+    /**
+     * This method checks if the given method has a specific annotation and if
+     * so it adds this method to the given map.
+     * 
+     * @param method the method to check
+     * @param map the map of all methods with the same annotation
+     * @param annotationType the type of the annotation to check in the method
+     * @return the type of the service accepted by the given method
+     */
+    private Class<?> addServiceMethod(
+        Method method,
+        Map<Class<?>, List<Method>> map,
+        Class<? extends Annotation> annotationType) {
+        Annotation annotation = method.getAnnotation(annotationType);
+        if (annotation == null) {
+            return null;
+        }
         Class<?>[] params = method.getParameterTypes();
-        if (checkServiceMethodParams(params)) {
-            helper = new TrackHelper(method, service.min());
-        } else {
+        if (!checkServiceMethodParams(params)) {
             throw new IllegalArgumentException("The method "
                 + method.getName()
                 + " has to have the type of the service"
                 + " and (optionally) a map of service parameters");
         }
-        fTrackers.add(helper);
-        return true;
+        Class<?> type = params[0];
+        List<Method> list = map.get(type);
+        if (list == null) {
+            list = new ArrayList<Method>();
+            map.put(type, list);
+        }
+        list.add(method);
+        return type;
     }
 
     /**
@@ -411,20 +472,11 @@ public class ObjectServiceTracker {
      * @return <code>true</code> if the given method is a service deactivator
      */
     private boolean addServiceUnloader(Method method) {
-        OSGIServiceDeactivator service = method
-            .getAnnotation(OSGIServiceDeactivator.class);
-        if (service == null)
-            return false;
-        Class<?>[] params = method.getParameterTypes();
-        if (!checkServiceMethodParams(params)) {
-            throw new IllegalArgumentException(
-                "The service deactivator method "
-                    + method.getName()
-                    + " should have exactly one parameter - "
-                    + "the service to deactivate.");
-        }
-        fServiceUnloaders.put(params[0], method);
-        return true;
+        Class<?> type = addServiceMethod(
+            method,
+            fServiceUnloaders,
+            OSGIServiceDeactivator.class);
+        return type != null;
     }
 
     /**
@@ -480,8 +532,9 @@ public class ObjectServiceTracker {
                 call(deactivator);
             }
         }
-        if (fCounter > 0)
+        if (fCounter > 0) {
             fCounter--;
+        }
     }
 
     /**
@@ -531,16 +584,19 @@ public class ObjectServiceTracker {
      */
     private void incReference() throws Exception {
         int size = fTrackers.size();
-        if (fCounter < size)
+        if (fCounter < size) {
             fCounter++;
+        }
         if (fCounter == size) {
             for (Method activator : fObjectActivators) {
                 call(activator);
             }
             fServiceRegistrations.clear();
             if (fServiceType != null) {
-                ServiceRegistration r = fContext.registerService(fServiceType
-                    .getName(), fObject, null);
+                ServiceRegistration r = fContext.registerService(
+                    fServiceType.getName(),
+                    fObject,
+                    null);
                 fServiceRegistrations.add(r);
             }
             for (Method method : fObjectServiceGetters) {
@@ -554,8 +610,9 @@ public class ObjectServiceTracker {
                     } else {
                         service = call(method);
                     }
-                    Class<?> serviceType = detectServiceType(method
-                        .getReturnType(), serviceAnnotation);
+                    Class<?> serviceType = detectServiceType(
+                        method.getReturnType(),
+                        serviceAnnotation);
                     ServiceRegistration r = fContext.registerService(
                         serviceType.getName(),
                         service,
