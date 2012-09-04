@@ -14,14 +14,14 @@
  * License for the specific language governing permissions and limitations under
  * the License.
  * ************************************************************************** */
-package org.webreformatter.commons.osgi;
+package org.ubimix.commons.osgi;
 
 import java.util.ArrayList;
 import java.util.List;
 
 import org.osgi.framework.BundleContext;
 
-import org.webreformatter.commons.osgi.ObjectServiceTracker;
+import org.ubimix.commons.osgi.ObjectServiceTracker;
 
 /**
  * This class is used to activate multiple object at the same time. For each of

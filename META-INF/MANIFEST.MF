@@ -1,12 +1,12 @@
 Manifest-Version: 1.0
-Export-Package: org.webreformatter.commons.osgi;version="1.1.5";uses:="org.osgi.util.tracker,org.osgi.framework"
-Bundle-Version: 1.1.5
-Bundle-Name: org.webreformatter.commons.osgi
+Export-Package: org.ubimix.commons.osgi;version="1.2.1";uses:="org.osgi.util.tracker,org.osgi.framework"
+Bundle-Version: 1.2.1
+Bundle-Name: org.ubimix.commons.osgi
 Bundle-ManifestVersion: 2
 Bundle-License: http://www.apache.org/licenses/LICENSE-2.0
 Bundle-Description: WebReformatter
 Import-Package: org.osgi.framework;version="1.3.0",
  org.osgi.service.cm;version="1.3.0";resolution:=optional,
  org.osgi.util.tracker;version="1.3.0"
-Bundle-SymbolicName: org.webreformatter.commons.osgi
-Bundle-RequiredExecutionEnvironment: J2SE-1.5
+Bundle-SymbolicName: org.ubimix.commons.osgi
+Bundle-RequiredExecutionEnvironment: JavaSE-1.6

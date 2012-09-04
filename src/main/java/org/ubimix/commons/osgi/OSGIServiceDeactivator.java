@@ -14,7 +14,7 @@
  * License for the specific language governing permissions and limitations under
  * the License.
  * ************************************************************************** */
-package org.webreformatter.commons.osgi;
+package org.ubimix.commons.osgi;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
@@ -22,14 +22,12 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * This annotation is used to mark deactivator methods in objects depending on
- * multiple OSGi services. Methods marked by this annotation are called when the
- * object is activated and at least one required service disapeared.
+ * This annotations is used to mark methods used to notify about removed
+ * services.
  * 
  * @author kotelnikov
  */
 @Retention(value = RetentionPolicy.RUNTIME)
 @Target(ElementType.METHOD)
-public @interface OSGIObjectDeactivator {
-
+public @interface OSGIServiceDeactivator {
 }
